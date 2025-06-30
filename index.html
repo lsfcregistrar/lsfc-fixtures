@@ -606,7 +606,7 @@
                 <h1>Leichhardt Saints FC</h1>
                 <div class="header-info">
                     <div class="ground-info" id="selectedGround">All Grounds</div>
-                    <div class="date-info">28-29 June 2025</div>
+                    <div class="date-info" id="dateInfo">No fixtures loaded</div>
                 </div>
             </div>
         </div>
@@ -643,7 +643,7 @@
             <div id="saturdaySection" style="display: none;">
                 <div class="day-section">
                     <div class="day-header">
-                        <span>Saturday 28 June 2025</span>
+                        <span id="saturdayDateHeader">Saturday</span>
                         <span class="fixture-count" id="saturdayCount"></span>
                     </div>
                     <div class="fixture-sheet">
@@ -669,7 +669,7 @@
             <div id="sundaySection" style="display: none;">
                 <div class="day-section">
                     <div class="day-header">
-                        <span>Sunday 29 June 2025</span>
+                        <span id="sundayDateHeader">Sunday</span>
                         <span class="fixture-count" id="sundayCount"></span>
                     </div>
                     <div class="fixture-sheet">
@@ -705,6 +705,7 @@
     <script>
         let allFixturesData = [];
         let currentFixtures = [];
+        let weekendDates = { saturday: null, sunday: null };
 
         async function handleFileUpload(event) {
             const file = event.target.files[0];
@@ -724,6 +725,10 @@
                 const rawData = XLSX.utils.sheet_to_json(worksheet);
                 
                 allFixturesData = processFixtureData(rawData);
+                
+                // Detect weekend dates from the data
+                detectWeekendDates(allFixturesData);
+                
                 populateFilters();
                 displayFixtures(allFixturesData);
                 
@@ -735,28 +740,82 @@
             }
         }
 
-        async function loadDefaultData() {
-            try {
-                // Read the original Excel file
-                const response = await window.fs.readFile('081544ff23d641228611c3f168a09f9e.xlsx');
-                const workbook = XLSX.read(response, {
-                    cellStyles: true,
-                    cellFormulas: true,
-                    cellDates: true,
-                    cellNF: true,
-                    sheetStubs: true
-                });
+        function detectWeekendDates(fixtures) {
+            // Get all unique dates
+            const dates = [...new Set(fixtures.map(f => f.date))].sort();
+            
+            if (dates.length === 0) {
+                weekendDates = { saturday: null, sunday: null };
+                updateDateDisplay();
+                return;
+            }
+            
+            // Assume first date is Saturday and second is Sunday
+            // If only one date, check if it's Saturday or Sunday
+            if (dates.length === 1) {
+                const date = new Date(dates[0] + 'T00:00:00');
+                const dayOfWeek = date.getDay();
+                if (dayOfWeek === 6) {
+                    weekendDates.saturday = dates[0];
+                    weekendDates.sunday = null;
+                } else if (dayOfWeek === 0) {
+                    weekendDates.saturday = null;
+                    weekendDates.sunday = dates[0];
+                } else {
+                    // Not a weekend day, just assign to Saturday for display
+                    weekendDates.saturday = dates[0];
+                    weekendDates.sunday = null;
+                }
+            } else {
+                // Multiple dates - take first two
+                weekendDates.saturday = dates[0];
+                weekendDates.sunday = dates[1];
+            }
+            
+            updateDateDisplay();
+        }
 
-                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-                const rawData = XLSX.utils.sheet_to_json(worksheet);
-                
-                allFixturesData = processFixtureData(rawData);
-                populateFilters();
-                displayFixtures(allFixturesData);
-                
-            } catch (error) {
-                console.error('Error loading default data:', error);
-                document.getElementById('noData').textContent = 'Error loading default data.';
+        function updateDateDisplay() {
+            const dateInfo = document.getElementById('dateInfo');
+            const saturdayHeader = document.getElementById('saturdayDateHeader');
+            const sundayHeader = document.getElementById('sundayDateHeader');
+            
+            if (!weekendDates.saturday && !weekendDates.sunday) {
+                dateInfo.textContent = 'No fixtures loaded';
+                return;
+            }
+            
+            // Format dates for display
+            const formatDate = (dateStr) => {
+                if (!dateStr) return '';
+                const date = new Date(dateStr + 'T00:00:00');
+                const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+                return date.toLocaleDateString('en-AU', options);
+            };
+            
+            const formatShortDate = (dateStr) => {
+                if (!dateStr) return '';
+                const date = new Date(dateStr + 'T00:00:00');
+                return date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+            };
+            
+            // Update header date info
+            if (weekendDates.saturday && weekendDates.sunday) {
+                const satDate = new Date(weekendDates.saturday + 'T00:00:00');
+                const sunDate = new Date(weekendDates.sunday + 'T00:00:00');
+                dateInfo.textContent = `${satDate.getDate()}-${sunDate.getDate()} ${satDate.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' })}`;
+            } else if (weekendDates.saturday) {
+                dateInfo.textContent = formatShortDate(weekendDates.saturday);
+            } else if (weekendDates.sunday) {
+                dateInfo.textContent = formatShortDate(weekendDates.sunday);
+            }
+            
+            // Update section headers
+            if (weekendDates.saturday) {
+                saturdayHeader.textContent = formatDate(weekendDates.saturday);
+            }
+            if (weekendDates.sunday) {
+                sundayHeader.textContent = formatDate(weekendDates.sunday);
             }
         }
 
@@ -851,9 +910,11 @@
             // Update table headers based on selection
             updateTableHeaders(isAllGrounds);
 
-            // Separate Saturday and Sunday fixtures
-            const saturdayFixtures = fixtures.filter(fixture => fixture.date === '2025-06-28');
-            const sundayFixtures = fixtures.filter(fixture => fixture.date === '2025-06-29');
+            // Separate Saturday and Sunday fixtures based on detected dates
+            const saturdayFixtures = weekendDates.saturday ? 
+                fixtures.filter(fixture => fixture.date === weekendDates.saturday) : [];
+            const sundayFixtures = weekendDates.sunday ? 
+                fixtures.filter(fixture => fixture.date === weekendDates.sunday) : [];
 
             // Sort by time
             saturdayFixtures.sort((a, b) => a.time.localeCompare(b.time));
@@ -891,43 +952,6 @@
             fixtureCount.textContent = fixtures.length;
             stats.style.display = 'flex';
             noData.style.display = 'none';
-        }
-
-        function updateSummaryCards(fixtures) {
-            // Total fixtures
-            document.getElementById('totalFixtures').textContent = fixtures.length;
-
-            // LSFC fixtures
-            const lsfcFixtures = fixtures.filter(f => 
-                f.homeTeam.includes('Leichhardt Saints') || f.awayTeam.includes('Leichhardt Saints')
-            );
-            document.getElementById('lsfcFixtures').textContent = lsfcFixtures.length;
-
-            // Grounds used
-            const uniqueGrounds = [...new Set(fixtures.map(f => f.ground))];
-            document.getElementById('groundsUsed').textContent = uniqueGrounds.length;
-
-            // Setup/Pack up duties (for LSFC games only)
-            let dutiesCount = 0;
-            const saturdayFixtures = fixtures.filter(f => f.date === '2025-06-28');
-            const sundayFixtures = fixtures.filter(f => f.date === '2025-06-29');
-            
-            const saturdayRoles = calculateRoles(saturdayFixtures);
-            const sundayRoles = calculateRoles(sundayFixtures);
-            
-            saturdayFixtures.forEach((fixture, index) => {
-                if (saturdayRoles[index] && (fixture.homeTeam.includes('Leichhardt Saints') || fixture.awayTeam.includes('Leichhardt Saints'))) {
-                    dutiesCount++;
-                }
-            });
-            
-            sundayFixtures.forEach((fixture, index) => {
-                if (sundayRoles[index] && (fixture.homeTeam.includes('Leichhardt Saints') || fixture.awayTeam.includes('Leichhardt Saints'))) {
-                    dutiesCount++;
-                }
-            });
-            
-            document.getElementById('dutiesCount').textContent = dutiesCount;
         }
 
         function calculateRoles(fixtures) {
@@ -1114,18 +1138,18 @@
             window.print();
         }
 
-        // Load default data when page loads
+        // Load XLSX library when page loads
         window.addEventListener('load', () => {
-            // Application now waits for user to upload a file
-            console.log('Leichhardt Saints FC Fixtures App loaded');
+            if (typeof XLSX === 'undefined') {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+                document.head.appendChild(script);
+                script.onload = () => {
+                    console.log('XLSX library loaded successfully');
+                };
+            }
+            console.log('Leichhardt Saints FC Fixtures App loaded - Dynamic dates version');
         });
-
-        // Add XLSX library
-        if (typeof XLSX === 'undefined') {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-            document.head.appendChild(script);
-        }
     </script>
 </body>
 </html>
